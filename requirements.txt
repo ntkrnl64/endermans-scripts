@@ -1,4 +1,3 @@
-hashcat
 pycryptodomex
 python-registry
 termcolor

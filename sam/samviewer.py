@@ -1,5 +1,6 @@
 import argparse
 import json
+import winreg
 from binascii import unhexlify
 from pathlib import Path
 
@@ -74,11 +75,11 @@ class SAMHash:
 
     def __repr__(self):
         return colored(
-            f'🔒 SAMHash [{len(self)} bytes] ↓ ↓\n', attrs=['bold']
+            f'[SAMHASH] SAMHash [{len(self)} bytes]\n', attrs=['bold']
         ) + '\n'.join(
             [
                 '\t' +
-                f'{'✔️ ' if getattr(self, entry[ES.NAME].lower()) is not None else '❌ '}' +
+                f'{'[+]' if getattr(self, entry[ES.NAME].lower()) is not None else '[X]'}' +
                 f'{entry[ES.NAME] + ':' : <30}' +
                 colored(str(getattr(self, entry[ES.NAME].lower())), attrs=['bold'])
                 for entry in self.__entries
@@ -131,13 +132,13 @@ class AESData:
 
     def __repr__(self):
         values = colored(
-            f'🔒 AESData [{len(self)} bytes] ↓ ↓\n', attrs=['bold']
+            f'[AESDATA] AESData [{len(self)} bytes]\n', attrs=['bold']
         )
 
         for entry in self.__entries:
             values += (
                 '\t' +
-                f'{'✔️ ' if getattr(self, entry[ES.NAME].lower()) is not None else '❌ '}' +
+                f'{'[+]' if getattr(self, entry[ES.NAME].lower()) is not None else '[X]'}' +
                 f'{entry[ES.NAME] + ':' : <30}' +
                 colored(str(getattr(self, entry[ES.NAME].lower())), attrs=['bold']) +
                '\n'
@@ -207,7 +208,7 @@ class Fd:
 
                     stamp = (high << 32) + low
 
-                    value = f'Δ{abs(stamp) // 10 ** 7} seconds'
+                    value = f'[DELTA] {abs(stamp) // 10 ** 7} seconds'
                 case 's':
                     value = bytes(self.select(entry)).decode('utf-16')
                 case 'b':
@@ -231,7 +232,7 @@ class Fd:
 
         for entry in self.__entries:
             values += (
-                f'{'✔️ ' if getattr(self, entry[ES.NAME].lower()) is not None else '❌ '}' +
+                f'{'[+]' if getattr(self, entry[ES.NAME].lower()) is not None else '[X]'}' +
                 f'{entry[ES.NAME] + ':' : <30}' +
                 colored(str(getattr(self, entry[ES.NAME].lower())), attrs=['bold']) +
                '\n'
@@ -363,7 +364,7 @@ class VEntry:
             service_string = f' (first entry: 0x{self.__base:02X} + 0x{self.service[1]:02X} = 0x{self.__base + self.service[1]:04X})'
 
         return (
-            f'{'✔️ ' if self.data else '❌ '}' +
+            f'{'[+]' if self.data else '[X]'}' +
             f'{self.name + ':' : <30}' +
             colored(f'{self.data or self.service}', attrs=['bold']) +
             (service_string if self.data else '')
@@ -455,42 +456,42 @@ class LMUser:
 
     def __repr__(self):
         return (
-            f'👤 User ' +
+            f'[USER] User ' +
             colored(f'{self.v.username.data}\n\n', attrs=['bold']) +
             colored(f'RID:', attrs=['bold']) +
-            f'\n🪪 {self.rid} (0x{self.rid:08X})' +
+            f'\n[RID] {self.rid} (0x{self.rid:08X})' +
             f'\n{self.v}\n' +
             (
                 f'{self.reset_data}' if self.reset_data else ''
             ) +
             (
-                colored(f'\n❗ Password reset next logon\n', attrs=['bold']) if self.reset_force else ''
+                colored(f'\n[!] Password reset next logon\n', attrs=['bold']) if self.reset_force else ''
             ) +
             (
                 (
                     colored(f'\nPassword hint:', attrs=['bold']) +
-                    f'\n🧵 {self.hint}'
+                    f'\n[HINT] {self.hint}'
                 ) if self.hint else ''
             ) +
             colored('\nDeobfuscation keys:\n', attrs=['bold']) +
             '\n'.join(
                 [
-                    f'❗ K{i + 1} = 0x{key.hex()}'
+                    f'[KEY] K{i + 1} = 0x{key.hex()}'
                     for i, key in enumerate(self.k)
                 ]
             ) +
             (
                 (
-                    colored('\n\n‼️🔓 Decrypted hashes:\n', attrs=['bold']) +
-                    f'NT: {self.decrypted_hashes[0].hex() if len(self.decrypted_hashes[0]) else '🚫 None'}\n' +
-                    f'LM: {self.decrypted_hashes[1].hex() if len(self.decrypted_hashes[1]) else '🚫 None (LM disabled/empty password)'}\n'
+                    colored('\n\n[DECRYPTED] Decrypted hashes:\n', attrs=['bold']) +
+                    f'NT: {self.decrypted_hashes[0].hex() if len(self.decrypted_hashes[0]) else "[NONE]"}\n' +
+                    f'LM: {self.decrypted_hashes[1].hex() if len(self.decrypted_hashes[1]) else "[NONE] (LM disabled/empty password)"}\n'
                 ) if self.decrypted_hashes else ''
             ) +
             (
                 (
-                        colored('\n✔️ Encrypted hashes:\n', attrs=['bold']) +
-                        f'NT: {self.encrypted_hashes[0].hex() if len(self.encrypted_hashes[0]) else '🚫 None'}\n' +
-                        f'LM: {self.encrypted_hashes[1].hex() if len(self.encrypted_hashes[1]) else '🚫 None (LM disabled/empty password)'}\n'
+                        colored('\n[ENCRYPTED] Encrypted hashes:\n', attrs=['bold']) +
+                        f'NT: {self.encrypted_hashes[0].hex() if len(self.encrypted_hashes[0]) else "[NONE]"}\n' +
+                        f'LM: {self.encrypted_hashes[1].hex() if len(self.encrypted_hashes[1]) else "[NONE] (LM disabled/empty password)"}\n'
                 ) if self.encrypted_hashes else ''
             ) +
             '\n'
@@ -754,47 +755,67 @@ class LMDomain:
             ('Data', data)
         ]
 
+        # Try to get class names from win32 APIs first
         if jd is None or skew1 is None or gbg is None or data is None:
-            print(colored('⚠️ The system boot key is required to decrypt the password hashes.', attrs=['bold']))
-            print('The boot key is calculated using the following formula:')
-            print(
-                '\t' +
-                colored('B', color='light_green') + ' = ' +
-                colored('JD', color='light_red') + '[' + colored('c', color='cyan') +'] || ' +
-                colored('Skew1', color='light_blue') + '[' + colored('c', color='cyan') +'] || ' +
-                colored('GBG', color='yellow') + '[' + colored('c', color='cyan') +'] || ' +
-                colored('Data', color='magenta') + '[' + colored('c', color='cyan') +'],'
-            )
-            print('where:')
-            print(
-                '• || is a concatenation operator\n' +
-                '• c is the registry key ' + colored('class name', color='red', attrs=['bold']) +
-                ' (❗ hidden away in the Registry Editor)\n' +
-                '• JD, Skew1, GBG, and Data are LSA subkeys\n'
-            )
-            print('To acquire the boot key class name components, you have to navigate to:')
-            print(colored('\tHKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa', attrs=['bold']))
-            print('of the target system and literally PRINT the LSA key to PDF.\n')
-            print('Hit Ctrl+P, select «Microsoft Print to PDF», and save the file.')
-            print('Then, open the PDF, find the JD, Skew1, GBG, and Data class names, and enter them below.')
-            print('Each class name is a 4-byte hex value (8 characters), together composing a 16-byte Base16 encoded string.\n')
-            print(colored('Example PDF entry:', attrs=['bold']))
-            print('\tKey Name: HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\JD')
-            print('\tClass Name: ' + colored('37557b3a', color='red', attrs=['bold']) + ' ← this is what you need ❗')
-            print('\tValue 0')
-            print('\t  Name: Lookup')
-            print('\t  Type: REG_BINARY')
-            print('\t  Data:')
-            print('\t00000000 25 9d f2 f8 59 27\n')
+            print(colored('[*] Attempting to retrieve class names from the live registry...', attrs=['bold']))
+            
+            win32_class_names = get_class_names_win32()
+            
+            if win32_class_names is not None:
+                print(colored('[+] Successfully retrieved class names from the live registry!', color='green', attrs=['bold']))
+                jd = win32_class_names.get('jd', jd)
+                skew1 = win32_class_names.get('skew1', skew1)
+                gbg = win32_class_names.get('gbg', gbg)
+                data = win32_class_names.get('data', data)
+                
+                keys = [
+                    ('JD', jd),
+                    ('Skew1', skew1),
+                    ('GBG', gbg),
+                    ('Data', data)
+                ]
+            else:
+                print(colored('[-] Could not retrieve class names from the live registry. Falling back to manual entry.', color='yellow', attrs=['bold']))
+                print(colored('[!] The system boot key is required to decrypt the password hashes.', attrs=['bold']))
+                print('The boot key is calculated using the following formula:')
+                print(
+                    '\t' +
+                    colored('B', color='light_green') + ' = ' +
+                    colored('JD', color='light_red') + '[' + colored('c', color='cyan') +'] || ' +
+                    colored('Skew1', color='light_blue') + '[' + colored('c', color='cyan') +'] || ' +
+                    colored('GBG', color='yellow') + '[' + colored('c', color='cyan') +'] || ' +
+                    colored('Data', color='magenta') + '[' + colored('c', color='cyan') +'],'
+                )
+                print('where:')
+                print(
+                    '* || is a concatenation operator\n' +
+                    '* c is the registry key ' + colored('class name', color='red', attrs=['bold']) +
+                    ' (note: hidden away in the Registry Editor)\n' +
+                    '* JD, Skew1, GBG, and Data are LSA subkeys\n'
+                )
+                print('To acquire the boot key class name components, you have to navigate to:')
+                print(colored('\tHKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa', attrs=['bold']))
+                print('of the target system and literally PRINT the LSA key to PDF.\n')
+                print('Hit Ctrl+P, select «Microsoft Print to PDF», and save the file.')
+                print('Then, open the PDF, find the JD, Skew1, GBG, and Data class names, and enter them below.')
+                print('Each class name is a 4-byte hex value (8 characters), together composing a 16-byte Base16 encoded string.\n')
+                print(colored('Example PDF entry:', attrs=['bold']))
+                print('\tKey Name: HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\JD')
+                print('\tClass Name: ' + colored('37557b3a', color='red', attrs=['bold']) + ' <- this is what you need!')
+                print('\tValue 0')
+                print('\t  Name: Lookup')
+                print('\t  Type: REG_BINARY')
+                print('\t  Data:')
+                print('\t00000000 25 9d f2 f8 59 27\n')
 
         lsa_key = b''
 
         for key, value in keys:
             while value is None or not self.is_valid_arg(value):
                 if value is None:
-                    print(colored(f'⚠️ {key} class name is missing.', color='yellow'))
+                    print(colored(f'[!] {key} class name is missing.', color='yellow'))
                 else:
-                    print(colored(f'❌ Invalid hex value for {key}.', color='red'))
+                    print(colored(f'[X] Invalid hex value for {key}.', color='red'))
 
                 value = input(f'Enter {key} ' + colored('class name', color='red', attrs=['bold']) + ': ')
 
@@ -807,7 +828,7 @@ class LMDomain:
         ):
             self.lsa_key[index] = lsa_key[scrambled]
 
-        print(f'{colored('LSA key:\n', attrs=['bold'])}🔑 0x{bytes(self.lsa_key).hex()}\n')
+        print(f'{colored('LSA key:\n', attrs=['bold'])}0x{bytes(self.lsa_key).hex()}\n')
 
         self.boot_key = self.decrypt_aes(
             bytes(self.lsa_key),
@@ -815,7 +836,7 @@ class LMDomain:
             bytes(self.fd.key.iv.data)
         )[:16]
 
-        print(f'{colored('Boot key:\n', attrs=['bold'])}🔐 0x{self.boot_key.hex()}\n')
+        print(f'{colored('Boot key:\n', attrs=['bold'])}0x{self.boot_key.hex()}\n')
 
     def decrypt_hash(self):
         for user in self.users:
@@ -904,6 +925,96 @@ class LMDomain:
                 + f'{self.fd}\n' +
                 '\n'.join([str(user) for user in self.users])
         )
+
+
+def get_class_names_win32() -> dict[str, str] | None:
+    """
+    Attempt to get class names from the live registry using win32 APIs.
+    Returns a dictionary with class names or None if it fails.
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+        
+        # Define the registry functions we need
+        advapi32 = ctypes.windll.advapi32
+        
+        HKEY_LOCAL_MACHINE = 0x80000002
+        KEY_READ = 0x20019
+        ERROR_SUCCESS = 0
+        
+        class_names = {}
+        subkeys = ['JD', 'Skew1', 'GBG', 'Data']
+        
+        # Open the LSA key
+        lsa_handle = wintypes.HANDLE()
+        lsa_path = r'SYSTEM\CurrentControlSet\Control\Lsa'
+        result = advapi32.RegOpenKeyExW(HKEY_LOCAL_MACHINE, lsa_path, 0, KEY_READ, ctypes.byref(lsa_handle))
+        
+        if result != ERROR_SUCCESS:
+            return None
+        
+        for subkey_name in subkeys:
+            subkey_handle = wintypes.HANDLE()
+            result = advapi32.RegOpenKeyExW(lsa_handle, subkey_name, 0, KEY_READ, ctypes.byref(subkey_handle))
+            
+            if result != ERROR_SUCCESS:
+                advapi32.RegCloseKey(lsa_handle)
+                return None
+            
+            # Get the class name
+            classname_buffer = ctypes.create_unicode_buffer(256)
+            classname_size = wintypes.DWORD(256)
+            
+            result = advapi32.RegQueryInfoKeyW(
+                subkey_handle,
+                classname_buffer,
+                ctypes.byref(classname_size),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            
+            advapi32.RegCloseKey(subkey_handle)
+            
+            if result != ERROR_SUCCESS:
+                advapi32.RegCloseKey(lsa_handle)
+                return None
+            
+            classname = classname_buffer.value
+            
+            if classname:
+                # The class name is a unicode string, we need to convert it to the expected hex format
+                # Class names in registry are 4-byte hex values (8 hex characters)
+                # They are stored as unicode strings like "37557b3a"
+                hex_str = classname.strip()
+                # Validate that it's a valid hex string of length 8
+                if len(hex_str) == 8:
+                    try:
+                        int(hex_str, 16)  # Validate it's valid hex
+                        class_names[subkey_name.lower()] = hex_str
+                    except ValueError:
+                        advapi32.RegCloseKey(lsa_handle)
+                        return None
+                else:
+                    advapi32.RegCloseKey(lsa_handle)
+                    return None
+            else:
+                advapi32.RegCloseKey(lsa_handle)
+                return None
+        
+        advapi32.RegCloseKey(lsa_handle)
+        return class_names
+        
+    except Exception:
+        # Registry access failed or ctypes not available, will fall back to user input
+        return None
 
 
 def get_class_names(system_hive: Path) -> dict[str, str]:
